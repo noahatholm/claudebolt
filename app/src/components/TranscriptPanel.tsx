@@ -1,14 +1,47 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { kindClass } from "../kinds";
 import { useStore } from "../store";
 import { fmt } from "../timeMap";
-import type { Proposal } from "../types";
+import type { Proposal, Word } from "../types";
 import { Icon } from "./Icon";
 import { Progress } from "./ui";
 
+/** Index of the word under (or most recently before) time t, or -1. Words are sorted by start. */
+function wordAt(words: Word[], t: number): number {
+  let lo = 0;
+  let hi = words.length - 1;
+  let best = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (words[mid].start <= t) {
+      best = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return best;
+}
+
 export function TranscriptPanel({ seek, onFound }: { seek: (t: number) => void; onFound: () => void }) {
-  const { project, words, proposals, selection, setSelection, edit, transcribe, cleanup, jobs, playhead } = useStore();
+  const { project, words, proposals, selection, setSelection, edit, transcribe, cleanup, jobs } = useStore();
+  // Subscribing to the index (not the playhead) re-renders only when playback reaches another word.
+  const nowIdx = useStore((s) => wordAt(s.words, s.playhead));
+  const nowLive = useStore((s) => nowIdx >= 0 && s.playhead < (s.words[nowIdx]?.end ?? 0));
   const [finding, setFinding] = useState(false);
+  const [follow, setFollow] = useState(true);
+  const scroller = useRef<HTMLDivElement>(null);
+
+  // Keep the current word in the middle band of the pane while following.
+  useEffect(() => {
+    const box = scroller.current;
+    if (!follow || !box || nowIdx < 0) return;
+    const el = box.querySelector<HTMLElement>(`[data-i="${nowIdx}"]`);
+    if (!el) return;
+    const b = box.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    if (r.top < b.top + b.height * 0.2 || r.bottom > b.bottom - b.height * 0.35) {
+      box.scrollTo({ top: box.scrollTop + r.top - b.top - b.height * 0.35, behavior: "smooth" });
+    }
+  }, [nowIdx, follow]);
 
   const byWord = useMemo(() => {
     const m = new Map<number, Proposal>();
@@ -86,22 +119,32 @@ export function TranscriptPanel({ seek, onFound }: { seek: (t: number) => void; 
           {running ? `Transcribing ${Math.round(running.progress * 100)}%` : "Re-transcribe"}
         </button>
         <span className="spacer" />
+        <button
+          className={follow ? "btn sm toggle on" : "btn sm toggle"}
+          onClick={() => setFollow(!follow)}
+          aria-pressed={follow}
+          title="Scroll the transcript along with playback"
+        >
+          <Icon name="target" size={13} />
+          Follow
+        </button>
         <button className="btn sm" onClick={find} disabled={finding}>
           {finding ? <span className="spinner" /> : <Icon name="sparkle" size={13} />}
           Find fillers &amp; retakes
         </button>
       </div>
       {running && <Progress value={running.progress} />}
-      <div className="scroll">
+      <div className="scroll" ref={scroller} onWheel={() => follow && setFollow(false)}>
         <div className="words">
-          {words.map((w) => {
+          {words.map((w, i) => {
             const p = byWord.get(w.i);
             const sel = selection && w.i >= selection[0] && w.i <= selection[1];
-            const now = playhead >= w.start && playhead < w.end;
+            const now = i === nowIdx;
             return (
               <span
                 key={w.i}
-                className={["w", w.removed ? "gone" : "", p ? `k ${kindClass(p.kind)}` : "", sel ? "sel" : "", now ? "now" : ""].join(" ")}
+                data-i={i}
+                className={["w", w.removed ? "gone" : "", p ? `k ${kindClass(p.kind)}` : "", sel ? "sel" : "", now ? (nowLive ? "now" : "now gap") : "", i < nowIdx ? "past" : ""].join(" ")}
                 onClick={(e) => click(w.i, e)}
                 title={p ? `${p.kind.replace("_", " ")} ${Math.round(p.confidence * 100)}%` : fmt(w.start)}
               >
@@ -111,6 +154,12 @@ export function TranscriptPanel({ seek, onFound }: { seek: (t: number) => void; 
           })}
         </div>
       </div>
+      {!follow && nowIdx >= 0 && !selection && (
+        <button className="jump" onClick={() => setFollow(true)}>
+          <Icon name="target" size={13} />
+          Back to playhead
+        </button>
+      )}
       {selection && (
         <div className="selbar">
           <span className="grow">

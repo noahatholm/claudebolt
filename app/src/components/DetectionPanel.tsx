@@ -21,11 +21,19 @@ const MIN_DB = -80;
 const MAX_DB = -10;
 const HIST_FLOOR = -90;
 
+const MODE_HINT: Record<Detection["mode"], string> = {
+  rms: "Fast and predictable. Best for a clean mic with a quiet room.",
+  vad: "Listens for a voice, so steady noise, hum or music beds count as silence.",
+  both: "Strictest: cuts anything quiet and anything without a voice.",
+};
+
 export function DetectionPanel() {
   const { project, settings, detect, summary } = useStore();
   const [d, setD] = useState<Detection>(DEFAULTS);
   const [an, setAn] = useState<Analysis | null>(null);
   const [busy, setBusy] = useState(false);
+  // How much the last Detect changed the edited length (null before the first run).
+  const [change, setChange] = useState<number | null>(null);
 
   useEffect(() => {
     if (settings?.detection) setD({ ...DEFAULTS, ...settings.detection });
@@ -47,7 +55,10 @@ export function DetectionPanel() {
 
   const run = async () => {
     setBusy(true);
+    const before = useStore.getState().summary?.output_duration;
     await detect(d);
+    const after = useStore.getState().summary?.output_duration;
+    setChange(before === undefined || after === undefined ? null : after - before);
     setBusy(false);
   };
 
@@ -66,14 +77,15 @@ export function DetectionPanel() {
             value={d.mode}
             onChange={(mode) => setD({ ...d, mode })}
             options={[
-              { value: "rms", label: "Volume", hint: "Quiet stretches by loudness (RMS)" },
-              { value: "vad", label: "Speech", hint: "Stretches with no speech (voice activity detection)" },
-              { value: "both", label: "Both", hint: "Quiet and no speech" },
+              { value: "rms", label: "Volume", hint: "Cut stretches quieter than the threshold" },
+              { value: "vad", label: "Speech", hint: "Cut stretches with no voice in them, however loud (voice activity detection)" },
+              { value: "both", label: "Both", hint: "Cut when it is quiet or when nobody is speaking" },
             ]}
           />
+          <p className="hint">{MODE_HINT[d.mode]}</p>
         </section>
 
-        <section className="section">
+        <section className={d.mode === "vad" ? "section off" : "section"} aria-disabled={d.mode === "vad"}>
           <div className="section-head">
             <span className="eyebrow">Threshold</span>
             <span className="readout">{typeof thr === "number" ? thr.toFixed(0) : thr} dB</span>
@@ -107,6 +119,7 @@ export function DetectionPanel() {
             Suggested {an ? `${an.suggested_threshold.toFixed(0)} dB` : "…"}
           </button>
           {an?.warnings.map((w) => <Notice key={w}>{w}</Notice>)}
+          {d.mode === "vad" && <p className="hint">Speech mode ignores the loudness threshold.</p>}
         </section>
 
         <section className="section">
@@ -142,6 +155,13 @@ export function DetectionPanel() {
             <b>−{summary.percent_removed}%</b>
             <span>{summary.removed_seconds.toFixed(1)} s removed</span>
           </div>
+        )}
+        {change !== null && !busy && (
+          <p className="hint">
+            {Math.abs(change) < 0.05
+              ? "Same cuts as the last run."
+              : `${Math.abs(change).toFixed(1)} s ${change < 0 ? "more" : "less"} cut than the last run.`}
+          </p>
         )}
         <button className="btn primary lg block" disabled={busy} onClick={run}>
           {busy ? <span className="spinner" /> : <Icon name="bolt" />}

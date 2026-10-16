@@ -16,11 +16,14 @@ from .sentences import build
 
 WINDOW = 600.0
 OVERLAP = 2.0
-PROMPT = "Um, uh, so, like, you know, I mean, uh, hmm."
+# Whisper tends to write "clean" text and drop hesitations; a disfluent prompt nudges it to keep them.
+PROMPT = "Uh, so, um, I was, uhh, thinking... Hmm. Okay, um, let me, uh, start again. Mm, yeah."
+# Part of the cache key: bump it when the decoding settings change, so re-transcribing picks them up.
+SETTINGS_REV = 2
 
 
 def cache_path(src: Source, stream: int, model: str):
-    return stream_dir(src, stream) / f"transcript.{model}.json"
+    return stream_dir(src, stream) / f"transcript.{model}.r{SETTINGS_REV}.json"
 
 
 def load_cached(src: Source, stream: int, model: str) -> Transcript | None:
@@ -79,8 +82,11 @@ def transcribe(
         t0 = max(0.0, k * WINDOW - (OVERLAP if k else 0.0))
         t1 = min(total, (k + 1) * WINDOW)
         chunk = np.asarray(pcm[int(t0 * RATE):int(t1 * RATE)], dtype=np.float32)
-        segs, info = wm.transcribe(chunk, language=lang, word_timestamps=True, vad_filter=True,
-                                   condition_on_previous_text=False, initial_prompt=PROMPT)
+        # No vad_filter: its speech gate drops soft "uhhh"s before Whisper hears them. The
+        # hallucination guard covers what the gate was for (made-up text in long silences).
+        segs, info = wm.transcribe(chunk, language=lang, word_timestamps=True, vad_filter=False,
+                                   condition_on_previous_text=False, initial_prompt=PROMPT,
+                                   hallucination_silence_threshold=2.0)
         detected = info.language or detected
         lo, hi = k * WINDOW, (k + 1) * WINDOW
         for s in segs:
