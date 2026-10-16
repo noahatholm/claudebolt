@@ -1,0 +1,3 @@
+# pnpm 11+ reads settings here, not from the "pnpm" field in package.json
+allowBuilds:
+  esbuild: true
