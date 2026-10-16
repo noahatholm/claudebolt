@@ -1,21 +1,24 @@
 import { useEffect, useRef } from "react";
 import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin, { type Region } from "wavesurfer.js/dist/plugins/regions.esm.js";
+import { KIND_VAR } from "../kinds";
 import { useStore } from "../store";
-
-const COLORS: Record<string, string> = {
-  silence: "rgba(239,68,68,0.35)",
-  filler: "rgba(249,115,22,0.45)",
-  false_start: "rgba(234,179,8,0.45)",
-  retake: "rgba(168,85,247,0.45)",
-  manual: "rgba(239,68,68,0.45)",
-  agent: "rgba(20,184,166,0.45)",
-};
+import { useTheme } from "../theme";
 
 interface Props {
   media: HTMLMediaElement | null;
   duration: number;
 }
+
+const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function tint(hex: string, a: number) {
+  const h = hex.replace("#", "");
+  const n = parseInt(h.length === 3 ? h.replace(/./g, "$&$&") : h, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+const waveColors = () => ({ waveColor: token("--wave"), progressColor: token("--wave-progress"), cursorColor: token("--cursor") });
 
 /** Waveform from engine-supplied peaks (instant on long files), with editable removed/speed regions. */
 export function Waveform({ media, duration }: Props) {
@@ -26,6 +29,7 @@ export function Waveform({ media, duration }: Props) {
   const peaks = useStore((s) => s.peaks);
   const segments = useStore((s) => s.segments);
   const edit = useStore((s) => s.edit);
+  const theme = useTheme((s) => s.resolved);
 
   useEffect(() => {
     if (!el.current || !peaks || !media) return;
@@ -40,10 +44,12 @@ export function Waveform({ media, duration }: Props) {
       media,
       peaks: [flat],
       duration,
-      height: 120,
-      waveColor: "#64748b",
-      progressColor: "#38bdf8",
-      cursorColor: "#f8fafc",
+      height: 104,
+      ...waveColors(),
+      cursorWidth: 2,
+      barWidth: 2,
+      barGap: 1,
+      barRadius: 2,
       normalize: false,
       minPxPerSec: 0,
       plugins: [rp],
@@ -71,24 +77,30 @@ export function Waveform({ media, duration }: Props) {
   }, [peaks, media, duration, edit]);
 
   useEffect(() => {
+    ws.current?.setOptions(waveColors());
+  }, [theme]);
+
+  useEffect(() => {
     const rp = regions.current;
     if (!rp) return;
+    const alpha = theme === "dark" ? 0.24 : 0.2;
     rp.clearRegions();
     known.current.clear();
     segments.forEach((s, i) => {
       if (s.op === "keep") return;
       const id = `r${i}`;
       known.current.set(id, { a: s.src_start, b: s.src_end });
+      const kind = s.op === "speed" ? "speed" : s.reason ?? "silence";
       rp.addRegion({
         id,
         start: s.src_start,
         end: s.src_end,
-        color: s.op === "speed" ? "rgba(59,130,246,0.35)" : COLORS[s.reason ?? "silence"] ?? COLORS.silence,
+        color: tint(token(KIND_VAR[kind] ?? KIND_VAR.silence), alpha),
         drag: false,
         resize: s.op === "remove" && !s.locked,
       });
     });
-  }, [segments, peaks, media]);
+  }, [segments, peaks, media, theme]);
 
-  return <div ref={el} className="waveform" />;
+  return <div ref={el} className={peaks ? "waveform" : "waveform loading"} />;
 }

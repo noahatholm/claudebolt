@@ -1,12 +1,14 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { kindClass } from "../kinds";
 import { useStore } from "../store";
 import { fmt } from "../timeMap";
 import type { Proposal } from "../types";
+import { Icon } from "./Icon";
+import { Progress } from "./ui";
 
-const KIND_CLASS: Record<string, string> = { filler: "k-filler", false_start: "k-false", retake: "k-retake" };
-
-export function TranscriptPanel({ seek }: { seek: (t: number) => void }) {
-  const { project, words, proposals, selection, setSelection, edit, transcribe, cleanup, decide, jobs, playhead } = useStore();
+export function TranscriptPanel({ seek, onFound }: { seek: (t: number) => void; onFound: () => void }) {
+  const { project, words, proposals, selection, setSelection, edit, transcribe, cleanup, jobs, playhead } = useStore();
+  const [finding, setFinding] = useState(false);
 
   const byWord = useMemo(() => {
     const m = new Map<number, Proposal>();
@@ -43,54 +45,84 @@ export function TranscriptPanel({ seek }: { seek: (t: number) => void }) {
     seek(words[i].start);
   };
 
-  const pending = proposals.filter((p) => p.status === "pending");
+  const find = async () => {
+    setFinding(true);
+    await cleanup();
+    setFinding(false);
+    onFound();
+  };
+
+  if (!words.length) {
+    return (
+      <div className="empty">
+        <span className="empty-icon"><Icon name="text" size={20} /></span>
+        <h4>No transcript yet</h4>
+        <p>
+          Transcribe with local Whisper to edit by text and find filler words and retakes. The first run downloads a
+          speech model (small.en, about 480 MB). It never leaves your computer.
+        </p>
+        {running ? (
+          <div className="stack w100">
+            <Progress value={running.progress} />
+            <span className="small muted">Transcribing {Math.round(running.progress * 100)}%</span>
+          </div>
+        ) : (
+          <button className="btn primary" onClick={() => void transcribe()}>
+            <Icon name="waveform" />
+            Transcribe
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const n = selection ? selection[1] - selection[0] + 1 : 0;
 
   return (
-    <div className="panel transcript">
-      <h3>Transcript</h3>
-      <div className="row">
-        <button onClick={() => void transcribe()} disabled={!!running}>
-          {running ? `Transcribing ${Math.round(running.progress * 100)}%` : words.length ? "Re-transcribe" : "Transcribe (local Whisper)"}
+    <>
+      <div className="toolbar">
+        <button className="btn sm ghost" onClick={() => void transcribe()} disabled={!!running}>
+          <Icon name="refresh" size={13} />
+          {running ? `Transcribing ${Math.round(running.progress * 100)}%` : "Re-transcribe"}
         </button>
-        <button onClick={() => void cleanup()} disabled={!words.length}>Find fillers & retakes</button>
+        <span className="spacer" />
+        <button className="btn sm" onClick={find} disabled={finding}>
+          {finding ? <span className="spinner" /> : <Icon name="sparkle" size={13} />}
+          Find fillers &amp; retakes
+        </button>
       </div>
-      {!words.length && <p className="muted small">The first run downloads a speech model (small.en, about 480 MB). It never leaves your computer.</p>}
-      <div className="words">
-        {words.map((w) => {
-          const p = byWord.get(w.i);
-          const sel = selection && w.i >= selection[0] && w.i <= selection[1];
-          const now = playhead >= w.start && playhead < w.end;
-          return (
-            <span
-              key={w.i}
-              className={["w", w.removed ? "gone" : "", p ? KIND_CLASS[p.kind] : "", sel ? "sel" : "", now ? "now" : ""].join(" ")}
-              onClick={(e) => click(w.i, e)}
-              title={p ? `${p.kind} ${Math.round(p.confidence * 100)}%` : fmt(w.start)}
-            >
-              {w.text}{" "}
-            </span>
-          );
-        })}
-      </div>
-      {selection && <button onClick={cut}>Cut selected words (D)</button>}
-      {pending.length > 0 && (
-        <div className="proposals">
-          <div className="row">
-            <b>{pending.length} suggestions</b>
-            <button onClick={() => void decide("accept", { min_confidence: 0.8 })}>Accept all &ge; 80%</button>
-            <button onClick={() => void decide("reject", {})}>Reject all</button>
-          </div>
-          {pending.slice(0, 200).map((p) => (
-            <div key={p.id} className={`prop ${KIND_CLASS[p.kind]}`}>
-              <span onClick={() => seek(p.start)} className="ptext">
-                <small>{p.kind.replace("_", " ")} {Math.round(p.confidence * 100)}%</small> {p.text}
+      {running && <Progress value={running.progress} />}
+      <div className="scroll">
+        <div className="words">
+          {words.map((w) => {
+            const p = byWord.get(w.i);
+            const sel = selection && w.i >= selection[0] && w.i <= selection[1];
+            const now = playhead >= w.start && playhead < w.end;
+            return (
+              <span
+                key={w.i}
+                className={["w", w.removed ? "gone" : "", p ? `k ${kindClass(p.kind)}` : "", sel ? "sel" : "", now ? "now" : ""].join(" ")}
+                onClick={(e) => click(w.i, e)}
+                title={p ? `${p.kind.replace("_", " ")} ${Math.round(p.confidence * 100)}%` : fmt(w.start)}
+              >
+                {w.text}{" "}
               </span>
-              <button onClick={() => void decide("accept", { ids: [p.id] })}>Cut</button>
-              <button onClick={() => void decide("reject", { ids: [p.id] })}>Keep</button>
-            </div>
-          ))}
+            );
+          })}
+        </div>
+      </div>
+      {selection && (
+        <div className="selbar">
+          <span className="grow">
+            <b>{n}</b> {n === 1 ? "word" : "words"} selected <span className="muted small">· shift-click to extend</span>
+          </span>
+          <button className="btn sm ghost" onClick={() => setSelection(null)}>Clear</button>
+          <button className="btn sm primary" onClick={cut}>
+            <Icon name="scissors" size={13} />
+            Cut <span className="kbd">D</span>
+          </button>
         </div>
       )}
-    </div>
+    </>
   );
 }
