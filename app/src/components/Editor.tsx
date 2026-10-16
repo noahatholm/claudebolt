@@ -17,6 +17,10 @@ export function Editor({ onSettings }: { onSettings: () => void }) {
   const [media, setMedia] = useState<HTMLMediaElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [showRender, setShowRender] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [maxZoom, setMaxZoom] = useState(64);
+  const zoomSpan = Math.log(Math.max(maxZoom, 1.01)); // slider is logarithmic: 0 = fit, 1 = deepest
+  const zoomBy = useCallback((f: number) => setZoom((z) => Math.min(maxZoom, Math.max(1, z * f))), [maxZoom]);
   const raf = useRef(0);
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -78,7 +82,10 @@ export function Editor({ onSettings }: { onSettings: () => void }) {
           const next = segsRef.current.find((s) => s.src_start > media.currentTime + 0.05);
           if (next) media.currentTime = next.src_start;
         } else media.currentTime += step;
-      } else if (e.key === "l" && media) { media.playbackRate = 2; void media.play(); }
+      } else if ((e.key === "=" || e.key === "+") && !e.ctrlKey) zoomBy(1.6);
+      else if (e.key === "-" && !e.ctrlKey) zoomBy(1 / 1.6);
+      else if (e.key === "0" && !e.ctrlKey) setZoom(1);
+      else if (e.key === "l" && media) { media.playbackRate = 2; void media.play(); }
       else if (e.key === "k") media?.pause();
       else if (e.key === "j" && media) media.currentTime -= 2;
       else if (e.key === "x" && media) {
@@ -88,7 +95,7 @@ export function Editor({ onSettings }: { onSettings: () => void }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [media, toggle, undo, redo, edit, isVideo]);
+  }, [media, toggle, undo, redo, edit, isVideo, zoomBy]);
 
   // Legend: only the kinds of edit that are actually on the timeline.
   const kinds = useMemo(() => {
@@ -100,6 +107,11 @@ export function Editor({ onSettings }: { onSettings: () => void }) {
 
   if (!project) return null;
   const url = mediaUrl(project.id, src.id);
+  // Backstop for the frame loop above, which browsers pause in hidden or throttled windows.
+  const clockEvents = {
+    onTimeUpdate: (e: React.SyntheticEvent<HTMLMediaElement>) => setPlayhead(e.currentTarget.currentTime),
+    onSeeked: (e: React.SyntheticEvent<HTMLMediaElement>) => setPlayhead(e.currentTarget.currentTime),
+  };
   const outT = sourceToOutput(segments, playhead);
   const fileName = src.path.split(/[\\/]/).pop();
 
@@ -126,9 +138,9 @@ export function Editor({ onSettings }: { onSettings: () => void }) {
         <main className="pane stage">
           <div className={isVideo ? "viewer" : "viewer audio"}>
             {isVideo ? (
-              <video ref={setMedia} src={url} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} />
+              <video ref={setMedia} src={url} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} {...clockEvents} />
             ) : (
-              <audio ref={setMedia} src={url} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} />
+              <audio ref={setMedia} src={url} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} {...clockEvents} />
             )}
             {!isVideo && (
               <div className="audio-card">
@@ -193,7 +205,7 @@ export function Editor({ onSettings }: { onSettings: () => void }) {
                   <span key={k} className={kindClass(k)}><i />{KIND_LABEL[k] ?? k}</span>
                 ))
               ) : (
-                <span className="muted">Run detection to mark silences. Click a marked region to restore it, drag its edges to adjust.</span>
+                <span className="muted" title="Click a marked region to restore it, drag its edges to adjust. Ctrl + scroll to zoom.">Run detection to mark silences.</span>
               )}
             </div>
             <span className="spacer" />
@@ -207,8 +219,31 @@ export function Editor({ onSettings }: { onSettings: () => void }) {
                 </span>
               </>
             )}
+            <div className="zoom" role="group" aria-label="Timeline zoom">
+              <button className="btn icon sm ghost" onClick={() => zoomBy(1 / 1.6)} disabled={zoom <= 1} title="Zoom out (−)" aria-label="Zoom out">
+                <Icon name="zoomOut" size={14} />
+              </button>
+              <input
+                className="range"
+                type="range"
+                min={0}
+                max={1}
+                step={0.001}
+                value={Math.log(zoom) / zoomSpan}
+                style={{ ["--p" as string]: `${(Math.log(zoom) / zoomSpan) * 100}%` }}
+                onChange={(e) => setZoom(Math.exp(parseFloat(e.target.value) * zoomSpan))}
+                aria-label="Zoom level"
+                title="Zoom (Ctrl + scroll on the waveform)"
+              />
+              <button className="btn icon sm ghost" onClick={() => zoomBy(1.6)} disabled={zoom >= maxZoom} title="Zoom in (+)" aria-label="Zoom in">
+                <Icon name="zoomIn" size={14} />
+              </button>
+              <button className="btn icon sm ghost" onClick={() => setZoom(1)} disabled={zoom <= 1} title="Fit whole file (0)" aria-label="Fit whole file">
+                <Icon name="fit" size={14} />
+              </button>
+            </div>
           </div>
-          <Waveform media={media} duration={project.duration} />
+          <Waveform media={media} duration={project.duration} zoom={zoom} onZoom={setZoom} onMaxZoom={setMaxZoom} />
         </section>
       </div>
 
