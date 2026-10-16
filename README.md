@@ -3,6 +3,17 @@ SAAS is dead. I used to pay $20 a month for a tool like this (think TimeBolt), s
 
 claudebolt automatically cuts silences, filler words, false starts and retakes from video and audio files. It runs entirely on your machine, with local Whisper transcription, and includes a local MCP server so an AI agent can edit for you.
 
+![The claudebolt editor: silence detection on the left, the player in the middle, the transcript with cut filler words on the right, and the timeline with silence and filler cuts along the bottom](docs/screenshots/editor-dark.jpg)
+
+## Screenshots
+| Light theme, zoomed timeline | Export and hand-off |
+| --- | --- |
+| ![The editor in the light theme with the timeline zoomed in](docs/screenshots/editor-light.jpg) | ![The export dialog with render presets and formats for other editors](docs/screenshots/export.jpg) |
+| **Start screen** | |
+| ![The start screen for opening a video or audio file](docs/screenshots/home.jpg) | |
+
+Silences are marked red and filler words amber on the timeline; cut words are struck through in the transcript, which follows playback. Everything you see runs locally.
+
 ## Status
 - **Engine** (`engine/`, Python): silence detection (volume, speech/VAD or both), cut/speed-up, multitrack, local Whisper transcripts, filler / false-start / retake suggestions, render (video and audio-only), exports (FCPXML, xmeml, EDL, SRT/VTT, Audacity labels, cut list JSON), REST + WebSocket API and an MCP server. Tested.
 - **Desktop app** (`app/`, Tauri 2 + React): the UI and native shell are written; the Rust shell has **not been compiled yet** (needs the Rust toolchain).
