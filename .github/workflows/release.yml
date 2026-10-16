@@ -1,0 +1,220 @@
+name: Release
+
+# Every push to main: pick the next version, run the tests, build the desktop app and the
+# standalone engine for each platform, then tag vX.Y.Z and publish a GitHub release.
+# The tag is only created once everything has passed, so failed builds never burn a version.
+#
+# Version bump (from commit messages since the last v* tag, conventional-commit style):
+#   "feat!: ..." / "fix(x)!: ..." / "BREAKING CHANGE" in the body -> major
+#   "feat: ..." / "feat(scope): ..."                                -> minor
+#   anything else                                                   -> patch
+# With no tags yet, the first release uses the version in engine/pyproject.toml.
+# The version is stamped into the manifests at build time only; nothing is committed back.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One release at a time, so two quick pushes can't compute the same version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      skip: ${{ steps.next.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - id: next
+        run: |
+          if git tag --points-at HEAD | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "HEAD is already released as $(git tag --points-at HEAD | head -n1); nothing to do"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          if [ -z "$last" ]; then
+            next=$(sed -n 's/^version = "\(.*\)"$/\1/p' engine/pyproject.toml | head -n1)
+          else
+            IFS=. read -r major minor patch <<< "${last#v}"
+            log=$(git log --format='%s%n%b' "$last..HEAD")
+            if grep -qE '^[a-z]+(\([^)]*\))?!:|^BREAKING[ -]CHANGE' <<< "$log"; then
+              major=$((major + 1)); minor=0; patch=0
+            elif grep -qE '^feat(\([^)]*\))?:' <<< "$log"; then
+              minor=$((minor + 1)); patch=0
+            else
+              patch=$((patch + 1))
+            fi
+            next="$major.$minor.$patch"
+          fi
+          echo "last tag: ${last:-none} -> v$next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: version
+    if: needs.version.outputs.skip != 'true'
+    uses: ./.github/workflows/test.yml
+
+  build:
+    name: build (${{ matrix.target }})
+    needs: [version, test]
+    # Windows arm64 (no ctranslate2 wheel) and macOS x64 (no onnxruntime wheel) can't be built
+    # until those dependencies ship wheels for them.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64
+            os: windows-2025
+            bundles: nsis,msi
+            ffmpeg: win64
+          - target: linux-x64
+            os: ubuntu-22.04 # oldest supported glibc keeps the .deb/.rpm widely installable
+            bundles: deb,rpm
+            ffmpeg: linux64
+          - target: linux-arm64
+            os: ubuntu-22.04-arm
+            bundles: deb,rpm
+            ffmpeg: linuxarm64
+          - target: macos-arm64
+            os: macos-15
+            bundles: app,dmg
+            ffmpeg: macos-arm64
+            sign: "-" # ad-hoc signature: Apple silicon refuses to run unsigned apps at all
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: engine/uv.lock
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+          key: ${{ matrix.target }}
+
+      - name: Install Tauri system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev patchelf rpm
+
+      - name: Stamp version
+        run: uv run --no-project python scripts/set_version.py "$VERSION"
+
+      - name: Fetch static ffmpeg to bundle
+        run: |
+          dir="$RUNNER_TEMP/ffmpeg"
+          mkdir -p "$dir/bin" && cd "$dir"
+          btbn=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest
+          case "${{ matrix.ffmpeg }}" in
+            win64)
+              curl -fsSL -o f.zip "$btbn/ffmpeg-master-latest-win64-gpl.zip"
+              7z x -y f.zip > /dev/null
+              mv ffmpeg-*/bin/ffmpeg.exe ffmpeg-*/bin/ffprobe.exe bin/ ;;
+            linux64|linuxarm64)
+              curl -fsSL -o f.tar.xz "$btbn/ffmpeg-master-latest-${{ matrix.ffmpeg }}-gpl.tar.xz"
+              tar -xJf f.tar.xz
+              mv ffmpeg-*/bin/ffmpeg ffmpeg-*/bin/ffprobe bin/ ;;
+            macos-arm64)
+              for t in ffmpeg ffprobe; do
+                curl -fsSL -o "$t.zip" "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/$t.zip"
+                unzip -o -q "$t.zip" -d bin
+              done ;;
+          esac
+          chmod +x bin/* || true
+          bin/ffmpeg -hide_banner -version | head -n1
+          echo "CLAUDEBOLT_BUNDLE_FFMPEG_DIR=$dir/bin" >> "$GITHUB_ENV"
+
+      - name: Freeze engine
+        run: uv run --no-project python engine/scripts/build_engine.py
+
+      - name: Smoke-test frozen engine
+        run: |
+          out=$(app/engine-dist/claudebolt-engine/claudebolt-engine --version | tr -d '\r')
+          echo "$out"
+          [ "$out" = "claudebolt $VERSION" ]
+
+      - name: Archive standalone engine
+        run: |
+          mkdir -p out
+          name="claudebolt-engine-$VERSION-${{ matrix.target }}"
+          cd app/engine-dist
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z a -tzip "../../out/$name.zip" claudebolt-engine > /dev/null
+          else
+            tar -czf "../../out/$name.tar.gz" claudebolt-engine
+          fi
+
+      - name: Build desktop app
+        working-directory: app
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ matrix.sign }}
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm tauri build --bundles ${{ matrix.bundles }}
+
+      - name: Collect installers
+        run: |
+          find app/src-tauri/target/release/bundle -maxdepth 2 -type f \
+            \( -name '*.exe' -o -name '*.msi' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' \) \
+            -exec cp {} out/ \;
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Tag and publish release
+        run: |
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          gh release create "v$VERSION" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "claudebolt v$VERSION" \
+            --generate-notes

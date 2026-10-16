@@ -17,7 +17,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": "all",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
     "resources": { "../engine-dist/claudebolt-engine/": "engine/" }
   }

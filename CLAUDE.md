@@ -14,7 +14,7 @@ It also exposes a **local MCP server**, so an AI editing agent can analyze, edit
 - `.plan/` and `.rea/` are local notes and are gitignored. Never commit them, un-ignore them, or reference their contents in tracked files.
 
 ## Status
-Engine (M0-M4, most of M6) and UI source (M5) are implemented. The Tauri Rust shell has not been compiled (no Rust toolchain was available); Windows installer/packaging (M7) is scripted but unverified end to end. MCP SDK is pinned `<2`.
+Engine (M0-M4, most of M6) and UI source (M5) are implemented. The Tauri Rust shell passes `cargo check`; packaging (M7) runs in CI (`.github/workflows/release.yml`) for Windows x64, Linux x64/arm64 and macOS arm64, but no release has been verified end to end yet. MCP SDK is pinned `<2`.
 
 ## Where to look
 - `.plan/00-overview.md`: goals, principles, index of the plan.

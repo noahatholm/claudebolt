@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     io::{BufRead, BufReader},
+    path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
@@ -28,9 +29,10 @@ fn engine_info(state: State<Arc<Engine>>) -> Option<EngineInfo> {
     state.info.lock().unwrap().clone()
 }
 
-/// Release: the frozen engine folder is installed as a resource at `<app dir>/engine/`.
+/// Release: the frozen engine folder is bundled as a resource at `<resource dir>/engine/` (next to
+/// the exe on Windows, `Contents/Resources` on macOS, `/usr/lib/<app>` on Linux).
 /// Debug: `uv run` the engine project in the repo. `CLAUDEBOLT_ENGINE_CMD` overrides both.
-fn engine_command() -> Command {
+fn engine_command(resources: Option<&PathBuf>) -> Command {
     if let Ok(custom) = std::env::var("CLAUDEBOLT_ENGINE_CMD") {
         let mut parts = custom.split_whitespace();
         let mut c = Command::new(parts.next().unwrap_or("claudebolt"));
@@ -38,11 +40,11 @@ fn engine_command() -> Command {
         return c;
     }
     if !cfg!(debug_assertions) {
-        if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = resources {
             let name = if cfg!(windows) { "claudebolt-engine.exe" } else { "claudebolt-engine" };
-            let sibling = exe.with_file_name("engine").join(name);
-            if sibling.exists() {
-                let mut c = Command::new(sibling);
+            let bundled = dir.join("engine").join(name);
+            if bundled.exists() {
+                let mut c = Command::new(bundled);
                 c.args(["serve", "--port", "0"]);
                 return c;
             }
@@ -54,14 +56,14 @@ fn engine_command() -> Command {
     c
 }
 
-fn supervise(engine: Arc<Engine>) {
+fn supervise(engine: Arc<Engine>, resources: Option<PathBuf>) {
     thread::spawn(move || {
         let mut delay = 500u64;
         loop {
             if *engine.stopping.lock().unwrap() {
                 break;
             }
-            let mut cmd = engine_command();
+            let mut cmd = engine_command(resources.as_ref());
             cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
             #[cfg(windows)]
             {
@@ -117,8 +119,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![engine_info])
         .setup({
             let engine = engine.clone();
-            move |_app| {
-                supervise(engine.clone());
+            move |app| {
+                supervise(engine.clone(), app.path().resource_dir().ok());
                 Ok(())
             }
         })
@@ -129,7 +131,8 @@ pub fn run() {
         if let RunEvent::Exit = event {
             let eng = handle.state::<Arc<Engine>>();
             *eng.stopping.lock().unwrap() = true;
-            if let Some(mut child) = eng.child.lock().unwrap().take() {
+            let child = eng.child.lock().unwrap().take();
+            if let Some(mut child) = child {
                 let _ = child.kill();
                 let _ = child.wait();
             }

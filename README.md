@@ -41,3 +41,11 @@ cd engine && uv run pytest              # fast suite
 uv run pytest -m slow                   # Whisper / VAD / 2-hour streaming
 cd ../app && pnpm test
 ```
+
+## Releases
+Every push to `main` runs `.github/workflows/release.yml`. It picks the next version from the commit
+messages since the last `v*` tag (`feat:` bumps minor, `!`/`BREAKING CHANGE` bumps major, anything else
+bumps patch). Then it runs the tests and builds the desktop installers and a standalone engine archive
+for Windows x64, Linux x64/arm64 and macOS arm64. Once all of that passes, it tags `vX.Y.Z` and publishes
+a GitHub release. The version is stamped into the manifests at build time (`scripts/set_version.py`),
+so nothing is committed back. PRs run the tests only (`test.yml`).
