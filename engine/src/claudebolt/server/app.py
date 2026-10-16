@@ -308,6 +308,12 @@ def create_app(svc: Service, token: str | None = None, with_mcp: bool = True) ->
     def cancel(jid: str) -> dict:
         return svc.cancel_job(jid)
 
+    @app.post(f"{api}/mcp/install")
+    def mcp_install() -> dict:
+        from ..mcp.install import install
+
+        return {"lines": install(True, True)}
+
     @app.websocket("/events")
     async def events(ws: WebSocket) -> None:
         await ws.accept()

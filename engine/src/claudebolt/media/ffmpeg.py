@@ -34,8 +34,9 @@ def _find(name: str) -> str:
             p = p.with_name(p.name.replace("ffmpeg", "ffprobe"))
         if p.exists():
             return str(p)
-    base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
-    for cand in (base / exe, base / "bin" / exe):
+    here = Path(sys.executable).parent
+    base = Path(getattr(sys, "_MEIPASS", here))
+    for cand in (here / exe, base / exe, base / "bin" / exe):
         if cand.exists():
             return str(cand)
     found = shutil.which(name)

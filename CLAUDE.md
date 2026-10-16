@@ -13,6 +13,9 @@ It also exposes a **local MCP server**, so an AI editing agent can analyze, edit
 - All code is written from scratch against public documentation (FFmpeg, Whisper, MCP spec). Never copy code, assets, strings or feature names from any third-party application.
 - `.plan/` and `.rea/` are local notes and are gitignored. Never commit them, un-ignore them, or reference their contents in tracked files.
 
+## Status
+Engine (M0-M4, most of M6) and UI source (M5) are implemented. The Tauri Rust shell has not been compiled (no Rust toolchain was available); Windows installer/packaging (M7) is scripted but unverified end to end. MCP SDK is pinned `<2`.
+
 ## Where to look
 - `.plan/00-overview.md`: goals, principles, index of the plan.
 - `.plan/01-architecture.md`: layout, process model, data model, storage.
@@ -33,7 +36,7 @@ uv run pytest                      # fast tests
 uv run pytest -m slow              # whisper / long-file tests
 uv run python tests/fixtures/make_fixtures.py
 uv run claudebolt cut in.mp4 -o out.mp4
-uv run claudebolt serve            # daemon (REST, /events WS, /mcp)
+uv run claudebolt serve            # engine (REST, /events WS, /mcp), prints {port, token}
 uv run claudebolt mcp              # MCP over stdio
 cd ../app && pnpm install && pnpm tauri dev
 ```

@@ -11,3 +11,6 @@ engine/tests/.fixtures/
 node_modules/
 dist/
 target/
+app/engine-dist/
+engine/build/
+app/src-tauri/gen/
