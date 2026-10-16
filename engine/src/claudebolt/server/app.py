@@ -331,12 +331,25 @@ def create_app(svc: Service, token: str | None = None, with_mcp: bool = True) ->
         loop = asyncio.get_running_loop()
         q: asyncio.Queue[dict] = asyncio.Queue()
         unsub = svc.bus.subscribe(lambda e: loop.call_soon_threadsafe(q.put_nowait, e))
-        try:
+
+        async def pump() -> None:
             while True:
                 await ws.send_json(await q.get())
-        except (WebSocketDisconnect, RuntimeError):
-            pass
+
+        async def until_closed() -> None:
+            # a send-only loop never notices the client leaving, and would hold shutdown open
+            while (await ws.receive())["type"] != "websocket.disconnect":
+                pass
+
+        tasks = [asyncio.create_task(pump()), asyncio.create_task(until_closed())]
+        try:
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         finally:
+            for t in tasks:
+                t.cancel()
+            for t in tasks:
+                with contextlib.suppress(asyncio.CancelledError, WebSocketDisconnect, RuntimeError):
+                    await t
             unsub()
 
     if mcp is not None:

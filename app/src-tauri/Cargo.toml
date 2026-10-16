@@ -6,7 +6,8 @@ edition = "2021"
 
 [lib]
 name = "claudebolt_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# desktop only needs the rlib; staticlib/cdylib (mobile) would compile and LTO the crate twice more
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -19,5 +20,6 @@ serde_json = "1"
 
 [profile.release]
 opt-level = "s"
-lto = true
+# thin, not fat: fat LTO serialises the final link and saves only ~1.7 MB next to the ~450 MB bundled engine
+lto = "thin"
 strip = true
