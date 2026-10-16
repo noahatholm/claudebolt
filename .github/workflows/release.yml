@@ -159,10 +159,7 @@ jobs:
         run: uv run --no-project python engine/scripts/build_engine.py
 
       - name: Smoke-test frozen engine
-        run: |
-          out=$(app/engine-dist/claudebolt-engine/claudebolt-engine --version | tr -d '\r')
-          echo "$out"
-          [ "$out" = "claudebolt $VERSION" ]
+        run: bash scripts/smoke_engine.sh app/engine-dist/claudebolt-engine "$VERSION"
 
       - name: Archive standalone engine
         run: |
@@ -190,14 +187,57 @@ jobs:
             -exec cp {} out/ \;
           ls -la out
 
+      - name: Portable Windows zip
+        if: runner.os == 'Windows'
+        run: |
+          # same layout the installer produces: the app finds engine/ next to its exe
+          p="$RUNNER_TEMP/claudebolt"
+          mkdir -p "$p"
+          cp app/src-tauri/target/release/claudebolt.exe "$p/"
+          cp -r app/engine-dist/claudebolt-engine "$p/engine"
+          (cd "$RUNNER_TEMP" && 7z a -tzip "$GITHUB_WORKSPACE/out/claudebolt-$VERSION-${{ matrix.target }}-portable.zip" claudebolt > /dev/null)
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
           path: out/*
           if-no-files-found: error
 
-  release:
+  # Install every package on a fresh runner, run the installed engine for real, and launch the
+  # installed app to check it starts its bundled engine. Nothing is published unless all pass.
+  verify:
+    name: verify (${{ matrix.target }} ${{ matrix.kind }})
     needs: [version, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: windows-x64, kind: nsis, os: windows-2025 }
+          - { target: windows-x64, kind: msi, os: windows-2025 }
+          - { target: windows-x64, kind: zip, os: windows-2025 }
+          - { target: linux-x64, kind: deb, os: ubuntu-24.04 }
+          - { target: linux-x64, kind: rpm, os: ubuntu-24.04 }
+          - { target: linux-arm64, kind: deb, os: ubuntu-24.04-arm }
+          - { target: linux-arm64, kind: rpm, os: ubuntu-24.04-arm }
+          - { target: macos-arm64, kind: dmg, os: macos-15 }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: pkg
+
+      - run: bash scripts/verify_install.sh ${{ matrix.kind }} pkg "${{ needs.version.outputs.version }}"
+
+  release:
+    needs: [version, verify]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -205,6 +245,10 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -213,8 +257,12 @@ jobs:
       - name: Tag and publish release
         run: |
           (cd dist && sha256sum * > SHA256SUMS.txt)
+          # upload everything to a draft first, so a failed upload never leaves a half-empty release
           gh release create "v$VERSION" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "claudebolt v$VERSION" \
-            --generate-notes
+            --notes-file scripts/release_notes.md \
+            --generate-notes \
+            --draft
+          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest
