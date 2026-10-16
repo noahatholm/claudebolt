@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mediaUrl } from "../engine";
+import { KIND_LABEL, kindClass } from "../kinds";
 import { playbackAction } from "../playback";
 import { useStore } from "../store";
 import { fmt, outputToSource, sourceToOutput } from "../timeMap";
-import { ActivityFeed } from "./ActivityFeed";
 import { DetectionPanel } from "./DetectionPanel";
+import { Icon } from "./Icon";
 import { RenderDialog } from "./RenderDialog";
-import { TranscriptPanel } from "./TranscriptPanel";
+import { Sidebar } from "./Sidebar";
+import { TopBar } from "./TopBar";
+import { Notice, Segmented } from "./ui";
 import { Waveform } from "./Waveform";
 
-export function Editor() {
+export function Editor({ onSettings }: { onSettings: () => void }) {
   const { project, segments, summary, view, setView, undo, redo, edit, setPlayhead, playhead } = useStore();
   const [media, setMedia] = useState<HTMLMediaElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -87,54 +90,129 @@ export function Editor() {
     return () => window.removeEventListener("keydown", onKey);
   }, [media, toggle, undo, redo, edit, isVideo]);
 
+  // Legend: only the kinds of edit that are actually on the timeline.
+  const kinds = useMemo(() => {
+    const k = new Set<string>();
+    for (const s of segments) if (s.op === "speed") k.add("speed");
+    else if (s.op === "remove") k.add(s.reason ?? "silence");
+    return [...k];
+  }, [segments]);
+
   if (!project) return null;
   const url = mediaUrl(project.id, src.id);
   const outT = sourceToOutput(segments, playhead);
+  const fileName = src.path.split(/[\\/]/).pop();
 
   return (
-    <div className="editor">
-      <aside className="left">
-        <DetectionPanel />
-      </aside>
-      <main className="center-col">
-        <div className="player">
-          {isVideo ? (
-            <video ref={setMedia} src={url} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} />
-          ) : (
-            <audio ref={setMedia} src={url} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} />
-          )}
-          {!isVideo && <div className="audio-title">{src.path.split(/[\\/]/).pop()}</div>}
-        </div>
-        <div className="transport">
-          <button onClick={toggle}>{playing ? "Pause" : "Play"}</button>
-          <span className="mono">{fmt(playhead)} / {fmt(project.duration)}</span>
-          <span className="mono muted">edited {fmt(outT)} / {fmt(summary?.output_duration ?? 0)}</span>
-          <span className="spacer" />
-          <div className="seg">
-            <button className={view === "source" ? "on" : ""} onClick={() => setView("source")}>Source</button>
-            <button className={view === "edited" ? "on" : ""} onClick={() => setView("edited")}>Edited</button>
+    <>
+      <TopBar onSettings={onSettings} file={src.path}>
+        <button className="btn icon ghost" onClick={() => void undo()} title="Undo (Ctrl+Z)" aria-label="Undo">
+          <Icon name="undo" />
+        </button>
+        <button className="btn icon ghost" onClick={() => void redo()} title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
+          <Icon name="redo" />
+        </button>
+        <button className="btn primary" onClick={() => setShowRender(true)} title="Render or export (Ctrl+E)">
+          <Icon name="export" />
+          Export
+        </button>
+      </TopBar>
+
+      <div className="workspace">
+        <aside className="pane inspector">
+          <DetectionPanel />
+        </aside>
+
+        <main className="pane stage">
+          <div className={isVideo ? "viewer" : "viewer audio"}>
+            {isVideo ? (
+              <video ref={setMedia} src={url} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} />
+            ) : (
+              <audio ref={setMedia} src={url} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} />
+            )}
+            {!isVideo && (
+              <div className="audio-card">
+                <div className={playing ? "eq on" : "eq"} aria-hidden>
+                  {[0, 1, 2, 3, 4].map((i) => <i key={i} />)}
+                </div>
+                <b>{fileName}</b>
+                <span>Audio · {fmt(project.duration)}</span>
+              </div>
+            )}
+            {view === "edited" && (
+              <span className="viewer-badge">
+                <Icon name="scissors" size={12} /> Edited preview
+              </span>
+            )}
           </div>
-          <button onClick={() => void undo()}>Undo</button>
-          <button onClick={() => void redo()}>Redo</button>
-          <button className="primary" onClick={() => setShowRender(true)}>Render / Export</button>
-        </div>
-        {project.warnings.map((w) => <div key={w} className="warn">{w}</div>)}
-        <Waveform media={media} duration={project.duration} />
-        <div className="summary">
-          {summary && (
-            <>
-              <b>{fmt(summary.output_duration)}</b> from {fmt(summary.source_duration)} &nbsp;
-              <span className="muted">(-{fmt(summary.removed_seconds)}, {summary.percent_removed}% removed)</span>
-            </>
-          )}
-          <button className="link" onClick={() => media && (media.currentTime = outputToSource(segments, 0))}>go to start</button>
-        </div>
-        <ActivityFeed />
-      </main>
-      <aside className="right">
-        <TranscriptPanel seek={(t) => media && (media.currentTime = t)} />
-      </aside>
+
+          {project.warnings.map((w) => <Notice key={w}>{w}</Notice>)}
+
+          <div className="transport">
+            <button
+              className="btn icon ghost"
+              onClick={() => media && (media.currentTime = outputToSource(segments, 0))}
+              title="Go to start"
+              aria-label="Go to start"
+            >
+              <Icon name="skipBack" />
+            </button>
+            <button className="play" onClick={toggle} title="Play / pause (Space)" aria-label={playing ? "Pause" : "Play"}>
+              <Icon name={playing ? "pause" : "play"} size={18} />
+            </button>
+            <div className="tc-group">
+              <span className="eyebrow">Source</span>
+              <span className="tc">{fmt(playhead)}<small>/ {fmt(project.duration)}</small></span>
+            </div>
+            <div className="tc-group">
+              <span className="eyebrow">Edited</span>
+              <span className="tc accent">{fmt(outT)}<small>/ {fmt(summary?.output_duration ?? 0)}</small></span>
+            </div>
+            <span className="spacer" />
+            <Segmented
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "source", label: "Source", hint: "Play the original recording" },
+                { value: "edited", label: "Edited", hint: "Play with cuts skipped and speed-ups applied" },
+              ]}
+            />
+          </div>
+        </main>
+
+        <aside className="pane side">
+          <Sidebar seek={(t) => media && (media.currentTime = t)} />
+        </aside>
+
+        <section className="pane dock">
+          <div className="dock-head">
+            <span className="pane-title">Timeline</span>
+            <div className="legend">
+              {kinds.length ? (
+                kinds.map((k) => (
+                  <span key={k} className={kindClass(k)}><i />{KIND_LABEL[k] ?? k}</span>
+                ))
+              ) : (
+                <span className="muted">Run detection to mark silences. Click a marked region to restore it, drag its edges to adjust.</span>
+              )}
+            </div>
+            <span className="spacer" />
+            {summary && (
+              <>
+                <span className="sum">
+                  <b>{fmt(summary.output_duration)}</b> from {fmt(summary.source_duration)}
+                </span>
+                <span className="pill" title={`${summary.removed_seconds.toFixed(1)} s removed`}>
+                  −{summary.percent_removed}%
+                </span>
+              </>
+            )}
+          </div>
+          <Waveform media={media} duration={project.duration} />
+        </section>
+      </div>
+
       {showRender && <RenderDialog onClose={() => setShowRender(false)} />}
-    </div>
+    </>
   );
 }

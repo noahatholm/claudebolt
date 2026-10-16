@@ -2,16 +2,26 @@ import { useState } from "react";
 import { pickSavePath, post } from "../engine";
 import { useStore } from "../store";
 import type { Job } from "../types";
+import { Icon } from "./Icon";
+import { Modal, Notice, Progress, Segmented, Switch } from "./ui";
 
-const PRESETS: { label: string; ext: string; settings: object }[] = [
-  { label: "Same as source", ext: "", settings: {} },
-  { label: "MP4 (H.264)", ext: "mp4", settings: { crf: 18 } },
-  { label: "MP4 small (YouTube-ish)", ext: "mp4", settings: { crf: 23 } },
-  { label: "Podcast MP3", ext: "mp3", settings: {} },
-  { label: "WAV", ext: "wav", settings: {} },
-  { label: "M4A (AAC)", ext: "m4a", settings: {} },
+const PRESETS: { label: string; note: string; ext: string; settings: object }[] = [
+  { label: "Same as source", note: "Keep the original format", ext: "", settings: {} },
+  { label: "MP4 · H.264", note: "High quality, CRF 18", ext: "mp4", settings: { crf: 18 } },
+  { label: "MP4 · compact", note: "Smaller upload, CRF 23", ext: "mp4", settings: { crf: 23 } },
+  { label: "MP3", note: "Podcast audio", ext: "mp3", settings: {} },
+  { label: "WAV", note: "Uncompressed audio", ext: "wav", settings: {} },
+  { label: "M4A", note: "AAC audio", ext: "m4a", settings: {} },
 ];
-const EXPORTS = ["fcpxml", "xmeml", "edl", "srt", "vtt", "audacity", "cutlist"];
+const EXPORTS: { format: string; label: string; note: string }[] = [
+  { format: "fcpxml", label: "FCPXML", note: "Final Cut Pro" },
+  { format: "xmeml", label: "XML", note: "Premiere, Resolve" },
+  { format: "edl", label: "EDL", note: "Edit decision list" },
+  { format: "srt", label: "SRT", note: "Subtitles" },
+  { format: "vtt", label: "VTT", note: "Web subtitles" },
+  { format: "audacity", label: "Labels", note: "Audacity" },
+  { format: "cutlist", label: "Cut list", note: "Plain list of cuts" },
+];
 
 export function RenderDialog({ onClose }: { onClose: () => void }) {
   const { project, jobs, setError, words } = useStore();
@@ -25,6 +35,7 @@ export function RenderDialog({ onClose }: { onClose: () => void }) {
   const stem = src.path.replace(/\.[^.\\/]+$/, "");
   const srcExt = src.path.split(".").pop() ?? "mp4";
   const job: Job | undefined = jobId ? jobs[jobId] : undefined;
+  const rendering = job?.status === "running" || job?.status === "queued";
 
   const render = async () => {
     const p = PRESETS[preset];
@@ -52,42 +63,63 @@ export function RenderDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="modal" onClick={onClose}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <h3>Render</h3>
-        <label>Preset
-          <select value={preset} onChange={(e) => setPreset(+e.target.value)}>
-            {PRESETS.map((p, i) => <option key={p.label} value={i}>{p.label}</option>)}
-          </select>
-        </label>
-        {src.kind === "video" && (
-          <>
-            <label>Encoder
-              <select value={encoder} onChange={(e) => setEncoder(e.target.value)}>
-                <option value="libx264">CPU (x264)</option>
-                <option value="auto">Auto (GPU if available)</option>
-              </select>
-            </label>
-            <label className="check"><input type="checkbox" checked={zoom} onChange={(e) => setZoom(e.target.checked)} /> Punch-zoom alternate cuts</label>
-          </>
-        )}
-        <button className="primary" onClick={render} disabled={job?.status === "running"}>Render</button>
-        {job && (
-          <div>
-            <progress value={job.progress} max={1} /> {job.status}
-            {job.status === "done" && <div className="ok-text">Saved {(job.result as { path?: string })?.path}</div>}
-            {job.error && <div className="error">{job.error}</div>}
-          </div>
-        )}
-        <h3>Export for other editors</h3>
-        <div className="row wrap">
-          {EXPORTS.filter((f) => words.length || !["srt", "vtt"].includes(f)).map((f) => (
-            <button key={f} onClick={() => doExport(f)}>{f}</button>
+    <Modal onClose={onClose} title="Export" subtitle="Render a new file, or hand the edit to another editor.">
+      <section className="section">
+        <span className="eyebrow">Render</span>
+        <div className="choices">
+          {PRESETS.map((p, i) => (
+            <button key={p.label} className={preset === i ? "choice on" : "choice"} onClick={() => setPreset(i)}>
+              <b>{p.label}</b>
+              <span>{p.note}</span>
+            </button>
           ))}
         </div>
-        {msg && <div className="ok-text">{msg}</div>}
-        <button onClick={onClose}>Close</button>
-      </div>
-    </div>
+        {src.kind === "video" && (
+          <div className="row between">
+            <Segmented
+              value={encoder}
+              onChange={setEncoder}
+              options={[
+                { value: "libx264", label: "CPU (x264)" },
+                { value: "auto", label: "GPU if available" },
+              ]}
+            />
+            <Switch checked={zoom} onChange={setZoom}>Punch-zoom alternate cuts</Switch>
+          </div>
+        )}
+        <button className="btn primary lg block" onClick={render} disabled={rendering}>
+          {rendering ? <span className="spinner" /> : <Icon name="export" />}
+          {rendering ? "Rendering…" : "Render"}
+        </button>
+        {job && (
+          <div className="stack">
+            {job.status !== "done" && job.status !== "failed" && (
+              <div className="row">
+                <div className="grow"><Progress value={job.progress} /></div>
+                <span className="small muted mono">{Math.round(job.progress * 100)}%</span>
+              </div>
+            )}
+            {job.status === "done" && <Notice tone="ok">Saved {(job.result as { path?: string })?.path}</Notice>}
+            {job.error && <Notice tone="error">{job.error}</Notice>}
+          </div>
+        )}
+      </section>
+
+      <section className="section">
+        <span className="eyebrow">Export for other editors</span>
+        <div className="choices">
+          {EXPORTS.filter((f) => words.length || !["srt", "vtt"].includes(f.format)).map((f) => (
+            <button key={f.format} className="choice" onClick={() => doExport(f.format)}>
+              <b className="row">
+                <Icon name="download" size={13} />
+                {f.label}
+              </b>
+              <span>{f.note}</span>
+            </button>
+          ))}
+        </div>
+        {msg && <Notice tone="ok">{msg}</Notice>}
+      </section>
+    </Modal>
   );
 }

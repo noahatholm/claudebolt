@@ -3,6 +3,9 @@ import { useEffect, useState } from "react";
 import { get, isTauri, post } from "../engine";
 import { useStore } from "../store";
 import { updatesEnabled, useUpdate } from "../updater";
+import { Icon } from "./Icon";
+import { ThemeToggle } from "./TopBar";
+import { Modal, Switch } from "./ui";
 
 interface Model { name: string; size_mb: number; note: string; installed: boolean }
 interface Agent { id: string; label: string; detected: boolean }
@@ -31,7 +34,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const updateText: Record<string, string> = {
     checking: "Checking...",
     none: "You have the latest version.",
-    available: `v${update.version} is available (see the banner at the top).`,
+    available: `v${update.version} is available.`,
     installing: `Installing v${update.version}...`,
     error: `Update check failed: ${update.error}`,
   };
@@ -54,46 +57,78 @@ export function Settings({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="modal" onClick={onClose}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <h3>Speech models (local Whisper)</h3>
-        <table>
-          <tbody>
-            {models.data?.map((m) => (
-              <tr key={m.name}>
-                <td>{m.name}</td>
-                <td className="muted">{m.size_mb} MB, {m.note}</td>
-                <td>{m.installed ? "installed" : <button onClick={() => download(m.name)}>Download</button>}</td>
-              </tr>
+    <Modal title="Settings" onClose={onClose} width={560}>
+      <section className="section">
+        <span className="eyebrow">Appearance</span>
+        <ThemeToggle labels />
+      </section>
+
+      <section className="section">
+        <span className="eyebrow">Speech models · local Whisper</span>
+        <div className="list">
+          {models.data?.map((m) => (
+            <div key={m.name} className="list-row">
+              <div className="grow">
+                <b>{m.name}</b>
+                <small>{m.size_mb} MB · {m.note}</small>
+              </div>
+              {m.installed ? (
+                <span className="tag"><Icon name="check" size={13} /> Installed</span>
+              ) : (
+                <button className="btn sm" onClick={() => download(m.name)}>
+                  <Icon name="download" size={13} />
+                  Download
+                </button>
+              )}
+            </div>
+          ))}
+          {models.isLoading && <div className="list-row muted small">Loading…</div>}
+        </div>
+      </section>
+
+      <section className="section">
+        <span className="eyebrow">AI agents · MCP</span>
+        <p className="small muted flush">Lets AI agents use claudebolt to edit your files. Runs locally.</p>
+        {!!agents.data?.length && (
+          <div className="list">
+            {agents.data.map((a) => (
+              <div key={a.id} className="list-row">
+                <Switch checked={chosen.has(a.id)} onChange={() => toggle(a.id)}>
+                  <b>{a.label}</b>
+                  {!a.detected && <small>Not detected on this computer</small>}
+                </Switch>
+              </div>
             ))}
-          </tbody>
-        </table>
-        <h3>AI agents (MCP)</h3>
-        <p className="muted small">Lets AI agents use claudebolt to edit your files. Runs locally.</p>
-        {agents.data?.map((a) => (
-          <label key={a.id} className="check small">
-            <input type="checkbox" checked={chosen.has(a.id)} onChange={() => toggle(a.id)} /> {a.label}
-            {!a.detected && <span className="muted"> (not detected)</span>}
-          </label>
-        ))}
-        <button onClick={install} disabled={chosen.size === 0}>Install in selected agents</button>
-        {mcp && <pre>{mcp}</pre>}
-        {appVersion && (
-          <>
-            <h3>Updates</h3>
-            <p className="muted small">
-              claudebolt v{appVersion}.{" "}
-              {canUpdate ? updateText[update.status] ?? "" : "Built from source: automatic updates are off."}
-            </p>
-            {canUpdate && (
-              <button onClick={() => update.check(true)} disabled={update.status === "checking" || update.status === "installing"}>
-                Check for updates
-              </button>
-            )}
-          </>
+          </div>
         )}
-        <button onClick={onClose}>Close</button>
-      </div>
-    </div>
+        <div>
+          <button className="btn" onClick={install} disabled={chosen.size === 0}>
+            <Icon name="sparkle" size={14} />
+            Install in selected agents
+          </button>
+        </div>
+        {mcp && <pre className="code">{mcp}</pre>}
+      </section>
+
+      {appVersion && (
+        <section className="section">
+          <span className="eyebrow">Updates</span>
+          <div className="list">
+            <div className="list-row">
+              <div className="grow">
+                <b>claudebolt v{appVersion}</b>
+                <small>{canUpdate ? updateText[update.status] ?? "" : "Built from source: automatic updates are off."}</small>
+              </div>
+              {canUpdate && (
+                <button className="btn sm" onClick={() => update.check(true)} disabled={update.status === "checking" || update.status === "installing"}>
+                  <Icon name="refresh" size={13} />
+                  Check for updates
+                </button>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+    </Modal>
   );
 }
