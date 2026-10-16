@@ -8,7 +8,7 @@ export interface Conn {
 
 let conn: Conn | null = null;
 
-const isTauri = () => "__TAURI_INTERNALS__" in window;
+export const isTauri = () => "__TAURI_INTERNALS__" in window;
 
 /** Resolve the engine address: Tauri command in the app, ?port=&token= (or saved) in a browser. */
 export async function connect(timeoutMs = 30000): Promise<Conn> {

@@ -185,15 +185,36 @@ jobs:
         working-directory: app
         env:
           APPLE_SIGNING_IDENTITY: ${{ matrix.sign }}
+          # signs the in-app update packages; the public half is in tauri.conf.json
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           pnpm install --frozen-lockfile
-          pnpm tauri build --bundles ${{ matrix.bundles }}
+          updater=()
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            updater=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
+            # compiled in: only these published builds look for updates (see src-tauri/src/lib.rs)
+            export CLAUDEBOLT_OFFICIAL_BUILD=1
+          elif [ "$GITHUB_REF" = refs/heads/main ]; then
+            echo "::error::the TAURI_SIGNING_PRIVATE_KEY secret is not set; releases must ship signed updates"
+            exit 1
+          else
+            echo "::warning::no TAURI_SIGNING_PRIVATE_KEY secret: building without update packages"
+          fi
+          pnpm tauri build --bundles ${{ matrix.bundles }} "${updater[@]}"
 
       - name: Collect installers
         run: |
           find app/src-tauri/target/release/bundle -maxdepth 2 -type f \
-            \( -name '*.exe' -o -name '*.msi' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' \) \
+            \( -name '*.exe' -o -name '*.msi' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' \
+               -o -name '*.sig' -o -name '*.app.tar.gz' \) \
             -exec cp {} out/ \;
+          # the macOS update package is named just claudebolt.app.tar.gz; give it a version and arch
+          # (renaming is safe: the signature covers the contents, not the name)
+          if [ -f out/claudebolt.app.tar.gz ]; then
+            mv out/claudebolt.app.tar.gz "out/claudebolt_${VERSION}_aarch64.app.tar.gz"
+            mv out/claudebolt.app.tar.gz.sig "out/claudebolt_${VERSION}_aarch64.app.tar.gz.sig"
+          fi
           ls -la out
 
       - name: Portable Windows zip
@@ -267,6 +288,8 @@ jobs:
 
       - name: Tag and publish release
         run: |
+          # the in-app updater reads releases/latest/download/latest.json; this also drops the .sig files
+          python3 scripts/make_latest_json.py dist "$VERSION" "$GITHUB_REPOSITORY"
           (cd dist && sha256sum * > SHA256SUMS.txt)
           # upload everything to a draft first, so a failed upload never leaves a half-empty release
           gh release create "v$VERSION" dist/* \

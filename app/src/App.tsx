@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { Editor } from "./components/Editor";
 import { Home } from "./components/Home";
 import { Settings } from "./components/Settings";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { connect, openEvents } from "./engine";
 import { useStore } from "./store";
+import { startUpdateChecks } from "./updater";
 
 export function App() {
   const { project, error, setError, setConnected, onEvent, connected } = useStore();
@@ -16,6 +18,7 @@ export function App() {
       .catch((e) => setBoot(String(e.message ?? e)));
     return openEvents(onEvent, setConnected);
   }, [onEvent, setConnected]);
+  useEffect(startUpdateChecks, []);
 
   if (boot) return <div className="center muted">{boot}</div>;
 
@@ -27,6 +30,7 @@ export function App() {
         <span className="spacer" />
         <button onClick={() => setShowSettings(true)}>Settings</button>
       </header>
+      <UpdateBanner />
       {error && (
         <div className="error" onClick={() => setError(null)}>
           {error} <small>(click to dismiss)</small>

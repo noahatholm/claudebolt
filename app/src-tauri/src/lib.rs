@@ -29,6 +29,16 @@ fn engine_info(state: State<Arc<Engine>>) -> Option<EngineInfo> {
     state.info.lock().unwrap().clone()
 }
 
+/// Only builds published by the release workflow (which sets CLAUDEBOLT_OFFICIAL_BUILD while
+/// compiling) look for updates. A dev run or a `tauri build` from a checkout never offers to
+/// replace itself with the GitHub release.
+const UPDATES: bool = !cfg!(debug_assertions) && option_env!("CLAUDEBOLT_OFFICIAL_BUILD").is_some();
+
+#[tauri::command]
+fn updates_enabled() -> bool {
+    UPDATES
+}
+
 /// Release: the frozen engine folder is bundled as a resource at `<resource dir>/engine/` (next to
 /// the exe on Windows, `Contents/Resources` on macOS, `/usr/lib/<app>` on Linux).
 /// Debug: `uv run` the engine project in the repo. `CLAUDEBOLT_ENGINE_CMD` overrides both.
@@ -113,10 +123,16 @@ fn supervise(engine: Arc<Engine>, resources: Option<PathBuf>) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let engine = Arc::new(Engine::default());
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    if UPDATES {
+        // updates come from the GitHub release's latest.json; the UI asks before installing
+        builder = builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init());
+    }
+    let app = builder
         .manage(engine.clone())
-        .invoke_handler(tauri::generate_handler![engine_info])
+        .invoke_handler(tauri::generate_handler![engine_info, updates_enabled])
         .setup({
             let engine = engine.clone();
             move |app| {
