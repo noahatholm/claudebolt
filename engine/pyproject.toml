@@ -1,0 +1,48 @@
+[project]
+name = "claudebolt"
+version = "0.1.0"
+description = "Local-first automatic video/audio editor: cuts silences, fillers, false starts and retakes."
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0",
+  "pydantic>=2.7",
+  "typer>=0.12",
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "mcp>=1.2",
+  "rapidfuzz>=3.9",
+  "platformdirs>=4.2",
+  "lxml>=5.2",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+whisper = ["faster-whisper>=1.0"]
+vad = ["onnxruntime>=1.18"]
+
+[project.scripts]
+claudebolt = "claudebolt.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "hypothesis>=6.100"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/claudebolt"]
+
+[tool.pytest.ini_options]
+markers = ["slow: whisper / long-file tests"]
+addopts = "-m 'not slow'"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = ["E501", "E402", "B008", "B905"]

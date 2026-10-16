@@ -1,0 +1,13 @@
+.rea/
+.plan/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+engine/tests/.fixtures/
+*.part.*
+.out_*
+node_modules/
+dist/
+target/
