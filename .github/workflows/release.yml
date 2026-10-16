@@ -1,8 +1,12 @@
 name: Release
 
-# Every push to main: pick the next version, run the tests, build the desktop app and the
-# standalone engine for each platform, then tag vX.Y.Z and publish a GitHub release.
-# The tag is only created once everything has passed, so failed builds never burn a version.
+# Every push to main: pick the next version, run the tests and build the desktop app and the
+# standalone engine for each platform (in parallel), install-test every package, then tag vX.Y.Z
+# and publish a GitHub release. The tag is only created once everything has passed, so failed
+# builds never burn a version.
+#
+# Run it by hand (workflow_dispatch) on any other branch to do a full build + verify without
+# publishing: the release job only runs on main.
 #
 # Version bump (from commit messages since the last v* tag, conventional-commit style):
 #   "feat!: ..." / "fix(x)!: ..." / "BREAKING CHANGE" in the body -> major
@@ -17,7 +21,7 @@ on:
 
 # One release at a time, so two quick pushes can't compute the same version.
 concurrency:
-  group: release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -67,7 +71,9 @@ jobs:
 
   build:
     name: build (${{ matrix.target }})
-    needs: [version, test]
+    # does not wait for the tests: they run alongside, and release needs both
+    needs: version
+    if: needs.version.outputs.skip != 'true'
     # Windows arm64 (no ctranslate2 wheel) and macOS x64 (no onnxruntime wheel) can't be built
     # until those dependencies ship wheels for them.
     strategy:
@@ -121,6 +127,7 @@ jobs:
         with:
           workspaces: app/src-tauri
           key: ${{ matrix.target }}
+          cache-on-failure: true
 
       - name: Install Tauri system deps
         if: runner.os == 'Linux'
@@ -237,7 +244,8 @@ jobs:
       - run: bash scripts/verify_install.sh ${{ matrix.kind }} pkg "${{ needs.version.outputs.version }}"
 
   release:
-    needs: [version, verify]
+    needs: [version, test, verify]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       contents: write

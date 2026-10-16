@@ -1,8 +1,11 @@
 name: Tests
 
-# Runs on PRs, and is called by release.yml before every build on main.
+# Runs on PRs and on pushes to branches other than main, and is called by release.yml on main
+# (in parallel with the builds; nothing is released unless it passes).
 on:
   pull_request:
+  push:
+    branches-ignore: [main]
   workflow_call:
 
 permissions:
@@ -73,7 +76,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri
+          cache-on-failure: true
 
       - name: cargo check
         working-directory: app/src-tauri
-        run: cargo check --locked
+        run: |
+          # tauri-build requires the bundled-engine resource dir to exist; the real one is only
+          # frozen by release.yml, so an empty placeholder is enough to type-check the shell
+          mkdir -p ../engine-dist/claudebolt-engine
+          cargo check --locked

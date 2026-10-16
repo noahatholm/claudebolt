@@ -104,11 +104,14 @@ class JobManager:
                 job.progress = 1.0
                 self.bus.publish({"type": "job.done", "job": job.id, "kind": kind,
                                   "result": job.result})
-            except Cancelled:
-                job.status = "cancelled"
-                self.bus.publish({"type": "job.failed", "job": job.id, "kind": kind,
-                                  "error": "cancelled"})
             except Exception as e:
+                # a killed subprocess can surface as any error (e.g. on Windows): if the job was
+                # asked to stop, it was cancelled, whatever it raised on the way out
+                if isinstance(e, Cancelled) or job.cancel.is_set():
+                    job.status = "cancelled"
+                    self.bus.publish({"type": "job.failed", "job": job.id, "kind": kind,
+                                      "error": "cancelled"})
+                    return
                 job.status = "failed"
                 job.error = str(e)
                 job.hint = getattr(e, "hint", None)
