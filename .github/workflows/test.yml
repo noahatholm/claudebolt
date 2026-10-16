@@ -65,6 +65,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test
+      - name: release manifest script
+        run: python3 ../scripts/test_make_latest_json.py
 
       - name: Install Tauri system deps
         run: |

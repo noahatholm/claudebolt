@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { get, post } from "../engine";
+import { useEffect, useState } from "react";
+import { get, isTauri, post } from "../engine";
 import { useStore } from "../store";
+import { updatesEnabled, useUpdate } from "../updater";
 
 interface Model { name: string; size_mb: number; note: string; installed: boolean }
 interface Agent { id: string; label: string; detected: boolean }
@@ -19,6 +20,21 @@ export function Settings({ onClose }: { onClose: () => void }) {
     setPicked(next);
   };
   const [mcp, setMcp] = useState("");
+  const update = useUpdate();
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [canUpdate, setCanUpdate] = useState(false);
+  useEffect(() => {
+    if (!isTauri()) return;
+    void import("@tauri-apps/api/app").then((m) => m.getVersion()).then(setAppVersion);
+    void updatesEnabled().then(setCanUpdate);
+  }, []);
+  const updateText: Record<string, string> = {
+    checking: "Checking...",
+    none: "You have the latest version.",
+    available: `v${update.version} is available (see the banner at the top).`,
+    installing: `Installing v${update.version}...`,
+    error: `Update check failed: ${update.error}`,
+  };
 
   const download = async (name: string) => {
     try {
@@ -62,6 +78,20 @@ export function Settings({ onClose }: { onClose: () => void }) {
         ))}
         <button onClick={install} disabled={chosen.size === 0}>Install in selected agents</button>
         {mcp && <pre>{mcp}</pre>}
+        {appVersion && (
+          <>
+            <h3>Updates</h3>
+            <p className="muted small">
+              claudebolt v{appVersion}.{" "}
+              {canUpdate ? updateText[update.status] ?? "" : "Built from source: automatic updates are off."}
+            </p>
+            {canUpdate && (
+              <button onClick={() => update.check(true)} disabled={update.status === "checking" || update.status === "installing"}>
+                Check for updates
+              </button>
+            )}
+          </>
+        )}
         <button onClick={onClose}>Close</button>
       </div>
     </div>
