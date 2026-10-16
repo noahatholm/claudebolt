@@ -54,13 +54,29 @@ export class ApiError extends Error {
   }
 }
 
+/** The app restarts a crashed engine on a new port + token: drop the cached address so connect() asks again. */
+function forget(stale: Conn) {
+  if (isTauri() && conn === stale) conn = null;
+}
+
 export async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+  const send = (c: Conn) =>
+    fetch(c.base + "/api" + path, {
+      method,
+      headers: { Authorization: `Bearer ${c.token}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
   const c = await connect();
-  const r = await fetch(c.base + "/api" + path, {
-    method,
-    headers: { Authorization: `Bearer ${c.token}`, "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let r: Response;
+  try {
+    r = await send(c);
+  } catch (e) {
+    // unreachable: retry once, but only against a restarted engine (never resend to the same one)
+    forget(c);
+    const next = await connect().catch(() => c);
+    if (next.base === c.base && next.token === c.token) throw e;
+    r = await send(next);
+  }
   const text = await r.text();
   const data = text ? JSON.parse(text) : null;
   if (!r.ok) {
@@ -90,6 +106,7 @@ export function openEvents(onEvent: (e: EngineEvent) => void, onState?: (up: boo
       ws.onmessage = (m) => onEvent(JSON.parse(m.data));
       ws.onclose = () => {
         onState?.(false);
+        forget(c);
         if (!closed) setTimeout(start, 1000);
       };
     } catch {

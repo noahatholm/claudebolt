@@ -59,6 +59,7 @@ class Service:
         self._locks: dict[str, threading.RLock] = {}
         self._allowed: set[Path] = set()
         self._analyses: dict[tuple[str, int], Analysis] = {}
+        self._analysis_locks: dict[tuple[str, int], threading.Lock] = {}
         self._timers: dict[str, threading.Timer] = {}
         self._reg = threading.Lock()
 
@@ -133,9 +134,13 @@ class Service:
         t = p.tracks[track]
         src = p.source(t.source_id)
         key = (src.sha256, t.audio_stream)
-        if key not in self._analyses:
-            self._analyses[key] = decode(src, t.audio_stream, on_progress, cancel)
-        return self._analyses[key]
+        with self._reg:
+            lock = self._analysis_locks.setdefault(key, threading.Lock())
+        # one decode per stream: concurrent requests (peaks + analyze on first open) share its cache files
+        with lock:
+            if key not in self._analyses:
+                self._analyses[key] = decode(src, t.audio_stream, on_progress, cancel)
+            return self._analyses[key]
 
     # ------------------------------------------------------------------ projects
     def open_media(self, paths: list[str], project_path: str | None = None) -> dict:

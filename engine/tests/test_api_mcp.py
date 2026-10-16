@@ -61,6 +61,55 @@ async def test_rest_flow_and_auth(media):
         assert st["status"] == "done"
 
 
+async def test_errors_carry_cors_headers(media):
+    svc = Service(sandbox=True)
+    origin = {"Origin": "http://tauri.localhost"}
+    app = create_app(svc, TOKEN, with_mcp=False)
+    t = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=t, base_url="http://127.0.0.1:1") as c:
+        denied = await c.get("/api/health", headers=origin)
+        assert denied.status_code == 403
+        assert denied.headers["access-control-allow-origin"] == "http://tauri.localhost"
+        pid = (await c.post("/api/projects", json={"paths": [str(media / "pattern.wav")]},
+                            headers=H)).json()["id"]
+        svc.get_peaks = lambda *a, **k: 1 / 0
+        crash = await c.get(f"/api/projects/{pid}/peaks", headers=H | origin)
+        assert crash.status_code == 500
+        assert crash.headers["access-control-allow-origin"] == "http://tauri.localhost"
+
+
+def test_concurrent_analysis_decodes_once(media, monkeypatch):
+    import threading
+
+    from claudebolt import service as service_mod
+
+    svc = Service()
+    pid = svc.open_media([str(media / "pattern.wav")])["id"]
+    real, calls = service_mod.decode, []
+
+    def slow_decode(*a, **k):
+        calls.append(1)
+        time.sleep(0.2)
+        return real(*a, **k)
+
+    monkeypatch.setattr(service_mod, "decode", slow_decode)
+    svc._analyses.clear()
+    errors = []
+
+    def peaks():
+        try:
+            svc.get_peaks(pid, 100)
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=peaks) for _ in range(4)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert not errors and len(calls) == 1
+
+
 async def test_events_published_on_edit(media):
     svc = Service()
     got = []
@@ -146,6 +195,11 @@ def test_serve_prints_port_token_and_mcp_over_http(engine, media):
         "Accept": "application/json, text/event-stream"})
     assert r.status_code == 200 and "claudebolt" in r.text
     assert httpx.get(base + "/mcp", headers={"Authorization": "Bearer wrong"}).status_code == 403
+    from websockets.sync.client import connect as ws_connect
+
+    url = f"ws://127.0.0.1:{info['port']}/events?token={info['token']}"
+    with ws_connect(url, origin="http://tauri.localhost", open_timeout=10) as ws:
+        ws.ping().wait(5)
 
 
 def test_stdio_proxy_shares_state_with_running_engine(engine, media):

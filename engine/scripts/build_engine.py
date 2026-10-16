@@ -22,6 +22,8 @@ cmd = [
     "--hidden-import", "uvicorn.logging", "--hidden-import", "uvicorn.loops.auto",
     "--hidden-import", "uvicorn.protocols.http.auto", "--hidden-import", "uvicorn.protocols.websockets.auto",
     "--hidden-import", "uvicorn.lifespan.on",
+    # uvicorn picks its WebSocket protocol at runtime; without these /events silently 404s
+    "--collect-submodules", "uvicorn", "--collect-submodules", "websockets",
     str(entry),
 ]
 subprocess.run(cmd, check=True)

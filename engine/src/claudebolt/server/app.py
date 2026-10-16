@@ -135,8 +135,6 @@ def create_app(svc: Service, token: str | None = None, with_mcp: bool = True) ->
         svc.flush()
 
     app = FastAPI(title="claudebolt engine", version=__version__, lifespan=lifespan)
-    app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=["*"],
-                       allow_headers=["Authorization", "Content-Type"])
 
     @app.exception_handler(ServiceError)
     async def _svc_err(_: Request, e: ServiceError):
@@ -344,7 +342,26 @@ def create_app(svc: Service, token: str | None = None, with_mcp: bool = True) ->
     if mcp is not None:
         app.mount("/", mcp.streamable_http_app())  # serves /mcp; mounted last
 
-    return Guard(app, token)  # type: ignore[return-value]
+    # CORS wraps everything, so the UI can read 403s and unhandled 500s too (a response without
+    # Access-Control-Allow-Origin surfaces in the webview as an opaque "Failed to fetch")
+    return CORSMiddleware(Guard(app, token), allow_origins=ALLOWED_ORIGINS,  # type: ignore[return-value]
+                          allow_methods=["*"], allow_headers=["Authorization", "Content-Type"])
+
+
+# Ports above 1024 that Chromium-based webviews refuse to fetch from (net::ERR_UNSAFE_PORT)
+BROWSER_BLOCKED_PORTS = frozenset({1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566,
+                                   6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080})
+
+
+def _bind(host: str, port: int) -> socket.socket:
+    """Bind `port` (0 = any free one), re-rolling ephemeral picks the webview would refuse."""
+    for _ in range(20):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind((host, port))
+        if port or sock.getsockname()[1] not in BROWSER_BLOCKED_PORTS:
+            return sock
+        sock.close()
+    raise SystemExit("could not find a usable port")
 
 
 def serve(host: str = "127.0.0.1", port: int = 0) -> None:
@@ -356,8 +373,8 @@ def serve(host: str = "127.0.0.1", port: int = 0) -> None:
     token = secrets.token_urlsafe(24)
     svc = Service(sandbox=True)
     app = create_app(svc, token)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind((host, port))
+    sock = _bind(host, port)
+    sock.listen(128)  # queue connections made before uvicorn is up instead of refusing them
     real_port = sock.getsockname()[1]
     info = {"port": real_port, "token": token, "pid": os.getpid()}
     df = daemon_file()
