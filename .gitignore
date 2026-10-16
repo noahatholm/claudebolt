@@ -14,3 +14,5 @@ target/
 app/engine-dist/
 engine/build/
 app/src-tauri/gen/
+app/test-results/
+app/playwright-report/

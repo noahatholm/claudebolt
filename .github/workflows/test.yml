@@ -87,3 +87,50 @@ jobs:
           # frozen by release.yml, so an empty placeholder is enough to type-check the shell
           mkdir -p ../engine-dist/claudebolt-engine
           cargo check --locked
+
+  # The app in Chromium against a real engine: open, detect, transcript edits, suggestions, zoom,
+  # export and render (app/e2e).
+  app-e2e:
+    name: app end-to-end
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: engine/uv.lock
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+
+      - run: uv sync --locked
+        working-directory: engine
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+        working-directory: app
+
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: app
+
+      - run: pnpm e2e
+        working-directory: app
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            app/playwright-report
+            app/test-results

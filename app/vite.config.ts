@@ -5,5 +5,5 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   server: { port: 1420, strictPort: true, host: "127.0.0.1" },
-  test: { environment: "node" },
+  test: { environment: "node", exclude: ["e2e/**", "node_modules/**"] },
 });

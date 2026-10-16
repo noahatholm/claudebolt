@@ -56,7 +56,13 @@ export const useStore = create<State>((set, getState) => ({
   playhead: 0,
 
   setError: (e) =>
-    set({ error: e instanceof ApiError ? (e.hint ? `${e.message} (${e.hint})` : e.message) : e instanceof Error ? e.message : String(e) }),
+    set({
+      error:
+        e == null ? null
+        : e instanceof ApiError ? (e.hint ? `${e.message} (${e.hint})` : e.message)
+        : e instanceof Error ? e.message
+        : String(e),
+    }),
   setConnected: (connected) => set({ connected }),
   setSelection: (selection) => set({ selection }),
   setView: (view) => set({ view }),

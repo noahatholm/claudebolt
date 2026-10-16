@@ -54,6 +54,8 @@ See `engine/scripts/build_engine.py` to freeze the engine into a bundled `claude
 cd engine && uv run pytest              # fast suite
 uv run pytest -m slow                   # Whisper / VAD / 2-hour streaming
 cd ../app && pnpm test
+pnpm exec playwright install chromium   # once; or set PW_CHANNEL=chrome to use your Chrome
+pnpm e2e                                # the app in a browser against a real engine
 ```
 
 ## Releases

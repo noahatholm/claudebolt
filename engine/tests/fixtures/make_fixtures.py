@@ -78,5 +78,36 @@ def make_speech() -> Path | None:
     return wav if r.returncode == 0 and wav.exists() else None
 
 
+# Five quiet, drawn-out hesitations between sentences: the kind Whisper's VAD gate used to drop.
+SOFT_SSML = """<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
+So the first thing I do is open the project. <break time="900ms"/>
+<prosody volume="x-soft" rate="x-slow">uhhh</prosody> <break time="900ms"/>
+Then I look at the waveform. <break time="1s"/>
+<prosody volume="soft" rate="x-slow">ummm</prosody> <break time="700ms"/>
+and I find the long pauses. <break time="800ms"/>
+<prosody volume="x-soft" rate="slow">uh</prosody> <break time="600ms"/>
+It is really, <prosody volume="soft" rate="x-slow">uhm</prosody> fast once you get used to it.
+<break time="900ms"/> <prosody volume="x-soft" rate="x-slow">hmmm</prosody> <break time="900ms"/>
+That is all for today.
+</speak>"""
+SOFT_HESITATIONS = 5
+
+
+def make_soft_speech() -> Path | None:
+    """Offline TTS clip with soft hesitations (Windows SAPI). Returns None if unavailable."""
+    wav = OUT / "soft_speech.wav"
+    if wav.exists():
+        return wav
+    if sys.platform != "win32":
+        return None
+    OUT.mkdir(parents=True, exist_ok=True)
+    ssml = OUT / "soft_speech.ssml"
+    ssml.write_text(SOFT_SSML, "utf-8")
+    ps = ("Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+          f"$s.SetOutputToWaveFile('{wav}'); $s.SpeakSsml([IO.File]::ReadAllText('{ssml}')); $s.Dispose()")
+    r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True)
+    return wav if r.returncode == 0 and wav.exists() else None
+
+
 if __name__ == "__main__":
-    print(make(force="--force" in sys.argv), make_speech())
+    print(make(force="--force" in sys.argv), make_speech(), make_soft_speech())
