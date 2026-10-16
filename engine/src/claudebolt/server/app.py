@@ -119,6 +119,10 @@ class ExportBody(BaseModel):
     keep_all_cuts: bool = False
 
 
+class McpInstallBody(BaseModel):
+    targets: list[str] | None = None  # None = every detected agent
+
+
 def create_app(svc: Service, token: str | None = None, with_mcp: bool = True) -> FastAPI:
     mcp = build_mcp(svc, streamable_http_path="/mcp") if with_mcp else None
 
@@ -308,11 +312,20 @@ def create_app(svc: Service, token: str | None = None, with_mcp: bool = True) ->
     def cancel(jid: str) -> dict:
         return svc.cancel_job(jid)
 
+    @app.get(f"{api}/mcp/clients")
+    def mcp_clients() -> list[dict]:
+        from ..mcp.install import list_clients
+
+        return list_clients()
+
     @app.post(f"{api}/mcp/install")
-    def mcp_install() -> dict:
+    def mcp_install(body: McpInstallBody | None = None) -> dict:
         from ..mcp.install import install
 
-        return {"lines": install(True, True)}
+        try:
+            return {"lines": install(body.targets if body else None)}
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
 
     @app.websocket("/events")
     async def events(ws: WebSocket) -> None:

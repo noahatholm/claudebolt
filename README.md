@@ -25,7 +25,10 @@ uv run claudebolt export talk.mp4.claudebolt.json --format fcpxml -o talk.fcpxml
 
 ## Let an AI agent edit for you (MCP)
 ```
-uv run claudebolt mcp install     # registers claudebolt in Claude Code / Claude Desktop
+uv run claudebolt mcp install     # registers claudebolt in every AI agent it detects
+uv run claudebolt mcp install codex opencode   # or pick: claude-code, claude-desktop, codex,
+                                  #   opencode, antigravity, gemini, cursor, windsurf, vscode
+uv run claudebolt mcp install --list            # what is supported / detected here
 ```
 Then ask: "remove all the ums and long pauses from demo.mp4 and render it".
 

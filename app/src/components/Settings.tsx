@@ -4,11 +4,20 @@ import { get, post } from "../engine";
 import { useStore } from "../store";
 
 interface Model { name: string; size_mb: number; note: string; installed: boolean }
+interface Agent { id: string; label: string; detected: boolean }
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const setError = useStore((s) => s.setError);
   const models = useQuery({ queryKey: ["models"], queryFn: () => get<Model[]>("/models") });
+  const agents = useQuery({ queryKey: ["mcp-clients"], queryFn: () => get<Agent[]>("/mcp/clients") });
+  const [picked, setPicked] = useState<Set<string> | null>(null);
+  const chosen = picked ?? new Set(agents.data?.filter((a) => a.detected).map((a) => a.id));
+  const toggle = (id: string) => {
+    const next = new Set(chosen);
+    if (!next.delete(id)) next.add(id);
+    setPicked(next);
+  };
   const [mcp, setMcp] = useState("");
 
   const download = async (name: string) => {
@@ -21,7 +30,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   };
   const install = async () => {
     try {
-      const r = await post<{ lines: string[] }>("/mcp/install");
+      const r = await post<{ lines: string[] }>("/mcp/install", { targets: [...chosen] });
       setMcp(r.lines.join("\n"));
     } catch (e) {
       setError(e);
@@ -44,8 +53,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
           </tbody>
         </table>
         <h3>AI agents (MCP)</h3>
-        <p className="muted small">Lets Claude Code or Claude Desktop use claudebolt to edit your files. Runs locally.</p>
-        <button onClick={install}>Install in Claude Code / Desktop</button>
+        <p className="muted small">Lets AI agents use claudebolt to edit your files. Runs locally.</p>
+        {agents.data?.map((a) => (
+          <label key={a.id} className="check small">
+            <input type="checkbox" checked={chosen.has(a.id)} onChange={() => toggle(a.id)} /> {a.label}
+            {!a.detected && <span className="muted"> (not detected)</span>}
+          </label>
+        ))}
+        <button onClick={install} disabled={chosen.size === 0}>Install in selected agents</button>
         {mcp && <pre>{mcp}</pre>}
         <button onClick={onClose}>Close</button>
       </div>

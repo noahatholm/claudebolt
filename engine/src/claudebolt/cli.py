@@ -224,12 +224,27 @@ def mcp_stdio(ctx: typer.Context):
 
 
 @mcp_app.command("install")
-def mcp_install(claude_code: bool = typer.Option(False, "--claude-code"),
-                claude_desktop: bool = typer.Option(False, "--claude-desktop")):
-    """Register claudebolt as an MCP server in Claude Code / Claude Desktop."""
-    from .mcp.install import install
+def mcp_install(
+    agents: Annotated[list[str] | None, typer.Argument(
+        help="Agents to register with (default: every detected one). See --list.")] = None,
+    list_: Annotated[bool, typer.Option("--list", help="Show supported agents and exit.")] = False,
+    claude_code: Annotated[bool, typer.Option("--claude-code", hidden=True)] = False,
+    claude_desktop: Annotated[bool, typer.Option("--claude-desktop", hidden=True)] = False,
+):
+    """Register claudebolt as an MCP server in local AI agents (Claude Code, Codex, OpenCode, ...)."""
+    from .mcp.install import install, list_clients
 
-    for line in install(claude_code or not claude_desktop, claude_desktop or not claude_code):
+    if list_:
+        for c in list_clients():
+            typer.echo(f"{'*' if c['detected'] else ' '} {c['id']:<15} {c['label']}")
+        typer.echo("(* = detected on this machine)")
+        return
+    targets = list(agents or []) + ["claude-code"] * claude_code + ["claude-desktop"] * claude_desktop
+    try:
+        lines = install(targets or None)
+    except ValueError as e:
+        _die(e)
+    for line in lines:
         typer.echo(line)
 
 
