@@ -10,6 +10,9 @@
 
 ffmpeg is bundled. Speech models download on first use (Settings → Speech models).
 
+Already installed? The app offers updates itself (banner at the top, or Settings → Check for updates);
+the portable zip has to be replaced by hand.
+
 These builds aren't code-signed yet:
 - **Windows:** SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**.
 - **macOS:** the first launch is blocked. Open **System Settings → Privacy & Security → Open Anyway**,

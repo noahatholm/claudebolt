@@ -52,3 +52,15 @@ bumps patch). Then it runs the tests and builds the desktop installers and a sta
 for Windows x64, Linux x64/arm64 and macOS arm64. Once all of that passes, it tags `vX.Y.Z` and publishes
 a GitHub release. The version is stamped into the manifests at build time (`scripts/set_version.py`),
 so nothing is committed back. PRs run the tests only (`test.yml`).
+
+### Updates
+Installed releases check the newest GitHub release's `latest.json` at start-up and every 6 hours. When
+there is a newer version they show a banner, and on **Install & restart** they download it, verify its
+signature and install it in the same format (NSIS, MSI, `.app`, `.deb`, `.rpm`). The portable zip and the
+standalone engine don't update themselves. Builds from a checkout never look for updates: only the
+release workflow compiles in `CLAUDEBOLT_OFFICIAL_BUILD`, and only when it holds the signing key.
+
+The release workflow signs update packages with the `TAURI_SIGNING_PRIVATE_KEY` and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repository secrets; the public key is in
+`app/src-tauri/tauri.conf.json`. Keep the private key safe: installed apps only accept updates signed
+with it.
