@@ -128,6 +128,8 @@ jobs:
           workspaces: app/src-tauri
           key: ${{ matrix.target }}
           cache-on-failure: true
+          # branches restore main's cache; only main pays the ~2 min to save it
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Tauri system deps
         if: runner.os == 'Linux'
@@ -209,6 +211,7 @@ jobs:
           name: ${{ matrix.target }}
           path: out/*
           if-no-files-found: error
+          compression-level: 0 # installers and archives are already compressed
 
   # Install every package on a fresh runner, run the installed engine for real, and launch the
   # installed app to check it starts its bundled engine. Nothing is published unless all pass.
