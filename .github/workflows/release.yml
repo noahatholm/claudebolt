@@ -74,6 +74,7 @@ jobs:
     # does not wait for the tests: they run alongside, and release needs both
     needs: version
     if: needs.version.outputs.skip != 'true'
+    timeout-minutes: 60 # a hung step fails fast instead of holding the release for GitHub's 6 h
     # Windows arm64 (no ctranslate2 wheel) and macOS x64 (no onnxruntime wheel) can't be built
     # until those dependencies ship wheels for them.
     strategy:
@@ -239,6 +240,7 @@ jobs:
   verify:
     name: verify (${{ matrix.target }} ${{ matrix.kind }})
     needs: [version, build]
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
