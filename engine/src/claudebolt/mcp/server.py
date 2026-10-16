@@ -91,6 +91,17 @@ def build_mcp(svc: Service, **kw: Any) -> FastMCP:
         """dB level series (<= 500 points) over a source-time range, for 'is this quiet?' questions."""
         return svc.get_levels(project_id, start, end, resolution)
 
+    @tool()
+    def sync_tracks(project_id: str) -> dict:
+        """Multitrack: estimate aux track offsets against the primary by cross-correlation."""
+        return svc.auto_sync(project_id)
+
+    @tool()
+    def set_track(project_id: str, track: int, offset: float | None = None,
+                  muted: bool | None = None) -> dict:
+        """Set a track's offset (seconds) or mute flag."""
+        return svc.set_track(project_id, track, offset, muted)
+
     # ---- models / transcript
     @tool()
     def list_models() -> list[dict]:

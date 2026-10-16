@@ -60,5 +60,23 @@ def make(force: bool = False) -> Path:
     return OUT
 
 
+SPEECH_TEXT = ("Welcome to the show. Um, today we talk about editing. "
+               "Uh, we talk about editing audio files. The end.")
+
+
+def make_speech() -> Path | None:
+    """Offline TTS clip with planted fillers (Windows SAPI). Returns None if unavailable."""
+    wav = OUT / "speech.wav"
+    if wav.exists():
+        return wav
+    if sys.platform != "win32":
+        return None
+    OUT.mkdir(parents=True, exist_ok=True)
+    ps = ("Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+          f"$s.SetOutputToWaveFile('{wav}'); $s.Speak('{SPEECH_TEXT}'); $s.Dispose()")
+    r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True)
+    return wav if r.returncode == 0 and wav.exists() else None
+
+
 if __name__ == "__main__":
-    print(make(force="--force" in sys.argv))
+    print(make(force="--force" in sys.argv), make_speech())

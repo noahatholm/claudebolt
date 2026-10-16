@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -e
+uv run ruff check src tests
+uv run pytest -m "not slow"

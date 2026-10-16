@@ -192,6 +192,9 @@ class Service:
             "tracks": [t.model_dump() for t in p.tracks],
             "duration": _round(p.duration), "output_duration": _round(p.output_duration),
             "has_transcript": p.transcript is not None,
+            "warnings": (["variable frame rate video: cuts may drift; re-encode to a constant "
+                          "frame rate first (ffmpeg -vf fps=30)"]
+                         if p.primary.video and p.primary.video.vfr else []),
             "proposals": len(p.proposals),
         }
 
@@ -209,6 +212,37 @@ class Service:
 
     def get_project(self, pid: str) -> Project:
         return self.project(pid)
+
+    # ------------------------------------------------------------------ tracks
+    def set_track(self, pid: str, track: int, offset: float | None = None,
+                  muted: bool | None = None) -> dict:
+        with self._lock(pid):
+            p = self.project(pid)
+            if not 0 <= track < len(p.tracks):
+                raise ServiceError(f"no track {track}", f"project has {len(p.tracks)} tracks")
+            t = p.tracks[track]
+            if offset is not None:
+                t.offset = offset
+            if muted is not None:
+                t.muted = muted
+            p.version += 1
+        self.bus.publish({"type": "tracks.changed", "project": pid, "version": p.version})
+        self._autosave(pid)
+        return self.describe(pid)
+
+    def auto_sync(self, pid: str) -> dict:
+        """Estimate each aux track's offset against the primary by envelope cross-correlation."""
+        from .detect.multitrack import estimate_offset
+
+        p = self.project(pid)
+        if len(p.tracks) < 2:
+            raise ServiceError("need at least two tracks to sync", "open_media with several files")
+        ref = self.analysis(p, 0).pcm()
+        found = {}
+        for i in range(1, len(p.tracks)):
+            found[i] = round(estimate_offset(ref, self.analysis(p, i).pcm()), 4)
+            self.set_track(pid, i, offset=found[i])
+        return {"offsets": found}
 
     # ------------------------------------------------------------------ analysis / detection
     def analyze_audio(self, pid: str, track: int = 0) -> dict:

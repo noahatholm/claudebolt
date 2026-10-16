@@ -186,6 +186,14 @@ def create_app(svc: Service, token: str | None = None, with_mcp: bool = True) ->
     def peaks(pid: str, px: int = 2000) -> dict:
         return svc.get_peaks(pid, px)
 
+    @app.post(api + "/projects/{pid}/tracks/{track}")
+    def set_track(pid: str, track: int, patch: dict) -> dict:
+        return svc.set_track(pid, track, patch.get("offset"), patch.get("muted"))
+
+    @app.post(api + "/projects/{pid}/sync")
+    def sync(pid: str) -> dict:
+        return svc.auto_sync(pid)
+
     @app.post(api + "/projects/{pid}/detect")
     def detect(pid: str, b: DetectBody) -> dict:
         return svc.detect_silence(pid, b.settings)
